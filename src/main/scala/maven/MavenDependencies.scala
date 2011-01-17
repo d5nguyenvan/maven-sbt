@@ -5,16 +5,19 @@ import org.apache.maven.model.{Model, Dependency, Repository}
 import org.codehaus.plexus.util.WriterFactory
 import org.apache.maven.model.io.xpp3.MavenXpp3Writer
 
-trait MavenDependencies extends DefaultProject {
+trait MavenDependencies extends BasicManagedProject {
   override def classpathFilter = super.classpathFilter -- "*-sources.jar" -- "*-javadoc.jar"
 
   override def managedStyle = ManagedStyle.Ivy // just enforce this to make things easier
 
+  // We lose the POM as an artifact when managedStyle != Maven, but we still want it.
+  override def artifacts = super.artifacts ++ List(Artifact(artifactID, "pom", "pom"))
+
   def localMavenRepo = Path.userHome / ".m2" / "repository"
 
-  def checksumPolicy = ChecksumPolicy.Warn
+  def checksumPolicy: ChecksumPolicy = ChecksumPolicy.Warn
 
-  def snapshotUpdatePolicy = SnapshotUpdatePolicy.Daily
+  def snapshotUpdatePolicy: SnapshotUpdatePolicy = SnapshotUpdatePolicy.Daily
 
   private lazy val engine = new Engine(localMavenRepo.absolutePath,
                                        repositories,
@@ -60,7 +63,7 @@ trait MavenDependencies extends DefaultProject {
   }
   }.toSeq
 
-  override lazy val makePom = task {
+  override def makePomAction = task {
     outputPath.asFile.mkdirs()
     val pomFile = pomPath.asFile
     pomFile.createNewFile()
@@ -70,30 +73,31 @@ trait MavenDependencies extends DefaultProject {
     None
   } describedAs("Generates a POM file.")
 
-  override lazy val update = task {
+  override def updateAction = task {
     log.info("Updating dependencies...")
     engine.update(this)
     None
   } describedAs(BasicManagedProject.UpdateDescription)
 
-  override lazy val cleanCache = task {
+  override def cleanCacheAction = task {
     log.info("You don't need to nuke your cache; you're not using Ivy.")
     None
   } describedAs(BasicManagedProject.CleanCacheDescription)
 
-  override lazy val publish = task {
+  override def publishAction = task {
     log.info("Publishing...")
     engine.deploy(this)
     None
   } describedAs("Deploys your artifacts to your local repository.") dependsOn((List(makePom) ++ packageToPublishActions): _*)
 
-  override lazy val publishLocal = task {
+  override def publishLocalAction = task {
     log.info("Installing locally...")
     engine.install(this)
     None
   } describedAs("Deploys your artifacts to your local repository.") dependsOn((List(makePom) ++ packageToPublishActions): _*)
 
-  lazy val dependencyTree = task {
+  lazy val dependencyTree = dependencyTreeAction
+  def dependencyTreeAction = task {
     engine.printDependencies(this)
     None
   } describedAs ("Prints a tree of your project's dependencies.")
